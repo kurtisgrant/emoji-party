@@ -62,6 +62,7 @@ function join(name) {
 }
 
 function render() {
+  stopDrawingTimer();
   if (!state?.me) return renderJoin();
   if (state.phase === "lobby") return renderLobby();
   if (!state.me.participant && state.phase !== "final") return renderWait("Game in progress", "You can join the next showdown.");
@@ -69,6 +70,7 @@ function render() {
   if (state.phase === "revealIntro") return renderWait("Eyes up", "The TV is setting the scene.");
   if (state.phase === "showcase") return renderWait("Gallery time", "Watch every masterpiece on the TV.");
   if (state.phase === "voting") return state.me.vote ? renderWait("Vote locked", "The TV will move on when voting is done.") : renderVoting();
+  if (state.phase === "scoring") return renderWait("Score time", "Look at the TV — winners are revealed.");
   if (state.phase === "final") return renderFinal();
   renderWait("Waiting", "Look at the TV.");
 }
@@ -130,6 +132,7 @@ function renderDrawing() {
         <div class="drawing-hud">
           <p class="prompt">${escapeHtml(prompt.text)}</p>
           <span class="pill">${prompt.index + 1}/3</span>
+          <span class="pill drawing-timer" id="drawingTimer">--:--</span>
         </div>
         <div class="drawing-stage">
           <div id="editorCanvas" class="editor-canvas"></div>
@@ -159,8 +162,59 @@ function renderDrawing() {
   document.getElementById("layerDown").onclick = () => moveCurrentLayer(-1);
   document.getElementById("layerUp").onclick = () => moveCurrentLayer(1);
   document.getElementById("finishArt").onclick = () => {
-    socket.emit("player:submitArt", rasterizeArt());
+    submitCurrentArt();
   };
+  startDrawingTimer();
+}
+
+let drawingTimerInterval = null;
+let lastTimedPromptIndex = null;
+let autoSubmitFiredFor = null;
+
+function startDrawingTimer() {
+  stopDrawingTimer();
+  if (state?.currentPrompt?.index !== lastTimedPromptIndex) {
+    lastTimedPromptIndex = state?.currentPrompt?.index ?? null;
+    autoSubmitFiredFor = null;
+  }
+  updateDrawingTimer();
+  drawingTimerInterval = setInterval(updateDrawingTimer, 500);
+}
+
+function stopDrawingTimer() {
+  if (drawingTimerInterval) {
+    clearInterval(drawingTimerInterval);
+    drawingTimerInterval = null;
+  }
+}
+
+function updateDrawingTimer() {
+  if (!state || state.phase !== "drawing" || !state.drawingEndsAt) return;
+  const el = document.getElementById("drawingTimer");
+  const remaining = Math.max(0, Math.ceil((state.drawingEndsAt - Date.now()) / 1000));
+  if (el) {
+    const m = Math.floor(remaining / 60);
+    const s = String(remaining % 60).padStart(2, "0");
+    el.textContent = `${m}:${s}`;
+    el.classList.toggle("urgent", remaining <= 30);
+    el.classList.toggle("critical", remaining <= 10);
+  }
+  if (remaining <= 0 && state.me?.participant && !state.me?.submitted) {
+    const promptIdx = state.currentPrompt?.index ?? null;
+    if (autoSubmitFiredFor !== promptIdx) {
+      autoSubmitFiredFor = promptIdx;
+      submitCurrentArt();
+    }
+  }
+}
+
+function submitCurrentArt() {
+  try {
+    socket.emit("player:submitArt", rasterizeArt());
+  } catch (error) {
+    console.warn("Submit failed", error);
+    socket.emit("player:submitArt", "");
+  }
 }
 
 function rasterizeArt() {
@@ -225,19 +279,31 @@ function renderVoting() {
     options.innerHTML = `<p class="muted">No vote needed this round.</p>`;
     return;
   }
-  for (const entry of choices) {
+  choices.forEach((entry, index) => {
     const btn = document.createElement("button");
     btn.className = "vote-card";
-    btn.innerHTML = `<strong>${escapeHtml(entry.name)}</strong><div></div>`;
+    btn.innerHTML = `<strong class="vote-anon">Artist ${index + 1}</strong><div></div>`;
     renderArtwork(btn.querySelector("div"), entry.art);
     btn.onclick = () => socket.emit("player:submitVote", entry.playerId);
     options.appendChild(btn);
-  }
+  });
 }
 
 function renderFinal() {
   app.className = "app";
   const leaderboard = state.leaderboard || [];
+  const totalSteps = leaderboard.length + 1;
+  const stepIndex = Math.min(state.finalRevealIndex || 0, totalSteps - 1);
+  const ceremonyDone = stepIndex >= totalSteps - 1;
+  if (!ceremonyDone) {
+    app.innerHTML = `
+      <section class="phone-panel simple-phone">
+        <h1>Final results</h1>
+        <p class="prompt">Watch the TV — places are being revealed.</p>
+      </section>
+    `;
+    return;
+  }
   app.innerHTML = `
     <section class="phone-panel simple-phone">
       <h1>Game over</h1>

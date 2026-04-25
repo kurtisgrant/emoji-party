@@ -915,6 +915,210 @@ input[type="checkbox"] {
   }
 }
 
+@keyframes tvSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes timerPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.drawing-timer {
+  font-variant-numeric: tabular-nums;
+  background: rgba(76, 224, 179, 0.14);
+  border-color: rgba(76, 224, 179, 0.45);
+  color: var(--accent);
+}
+
+.drawing-timer.urgent {
+  background: rgba(255, 207, 74, 0.18);
+  border-color: rgba(255, 207, 74, 0.55);
+  color: var(--accent-2);
+}
+
+.drawing-timer.critical {
+  background: rgba(255, 90, 90, 0.22);
+  border-color: rgba(255, 120, 120, 0.6);
+  color: #ff8a8a;
+  animation: timerPulse 700ms ease-in-out infinite;
+}
+
+.tv-timer {
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(2.6rem, 5vw, 5.2rem);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  background: rgba(76, 224, 179, 0.12);
+  border: 2px solid rgba(76, 224, 179, 0.45);
+  padding: 8px 28px;
+  border-radius: 999px;
+  display: inline-block;
+  width: fit-content;
+}
+
+.tv-timer.urgent {
+  color: var(--accent-2);
+  border-color: rgba(255, 207, 74, 0.55);
+  background: rgba(255, 207, 74, 0.16);
+}
+
+.tv-timer.critical {
+  color: #ff8a8a;
+  border-color: rgba(255, 120, 120, 0.7);
+  background: rgba(255, 90, 90, 0.18);
+  animation: timerPulse 700ms ease-in-out infinite;
+}
+
+.vote-anon {
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.tv-scoring {
+  justify-items: center;
+  text-align: center;
+}
+
+.tv-prompt-line {
+  font-size: clamp(1.5rem, 2.4vw, 3rem);
+  color: var(--muted);
+  font-style: italic;
+  max-width: 38ch;
+}
+
+.tv-scoring-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(20px, 3vw, 48px);
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.tv-scoring-card {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  animation: tvSlideUp 620ms cubic-bezier(.2, .85, .25, 1.18) both;
+}
+
+.tv-scoring-card .tv-art-stage {
+  width: min(40vw, 640px);
+}
+
+.tv-points-badge {
+  font-weight: 900;
+  font-size: clamp(1.4rem, 2.2vw, 2.6rem);
+  color: var(--accent);
+  background: rgba(76, 224, 179, 0.18);
+  border: 2px solid rgba(76, 224, 179, 0.45);
+  padding: 6px 22px;
+  border-radius: 999px;
+  letter-spacing: 0.05em;
+}
+
+.tv-final-intro {
+  justify-items: center;
+  text-align: center;
+}
+
+.final-intro-title {
+  animation: tvTitleIn 700ms cubic-bezier(.2, .85, .25, 1.18) both;
+}
+
+.tv-final {
+  grid-template-columns: minmax(360px, 1.05fr) minmax(360px, 0.95fr);
+  align-items: center;
+  gap: clamp(28px, 4vw, 64px);
+}
+
+.tv-final-champion {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 207, 74, 0.32), transparent 38%),
+    radial-gradient(circle at 16% 18%, rgba(76, 224, 179, 0.18), transparent 24%),
+    var(--bg);
+}
+
+.final-stage {
+  display: grid;
+  gap: 18px;
+  justify-items: center;
+  text-align: center;
+  animation: tvSlideUp 620ms cubic-bezier(.2, .85, .25, 1.18) both;
+}
+
+.final-stage .tv-art-stage {
+  width: min(48vw, 760px);
+}
+
+.final-name {
+  font-size: clamp(2.8rem, 5vw, 6rem);
+  margin: 0;
+}
+
+.tv-final-champion .final-name {
+  color: var(--accent-2);
+  text-shadow: 0 0 40px rgba(255, 207, 74, 0.4);
+}
+
+.final-score {
+  font-size: clamp(1.8rem, 3vw, 3.6rem);
+  font-weight: 900;
+  color: var(--accent);
+}
+
+.final-leaderboard {
+  align-self: center;
+}
+
+.final-leaderboard .leaderboard-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: clamp(1.4rem, 2.4vw, 2.6rem);
+  transition: background 240ms ease, border-color 240ms ease, color 240ms ease, transform 240ms ease;
+}
+
+.final-leaderboard .leaderboard-row.pending {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+.final-leaderboard .leaderboard-row.revealed {
+  background: rgba(76, 224, 179, 0.1);
+  border-color: rgba(76, 224, 179, 0.32);
+}
+
+.final-leaderboard .leaderboard-row.focus {
+  background: rgba(255, 207, 74, 0.16);
+  border-color: rgba(255, 207, 74, 0.55);
+  transform: translateX(-6px);
+}
+
+.final-cta {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-size: clamp(1.2rem, 2vw, 2.2rem);
+  color: var(--muted);
+}
+
 @media (max-width: 760px) {
   .grid {
     grid-template-columns: 1fr;

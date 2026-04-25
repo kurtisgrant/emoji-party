@@ -10,6 +10,10 @@ const MATCH_PROMPTS = 3;
 const HAND_SIZE = 18;
 const REVEAL_INTRO_MS = 4200;
 const SHOWCASE_MS = 4300;
+const SCORING_MS = 5200;
+const FINAL_INTRO_MS = 3500;
+const FINAL_STEP_MS = 4400;
+const DRAWING_DURATION_MS = 3 * 60 * 1000;
 
 const app = express();
 const server = http.createServer(app);
@@ -185,8 +189,13 @@ const game = {
   participants: new Set(),
   players: new Map(),
   usedPrompts: [],
-  roundWinners: []
+  roundWinners: [],
+  drawingEndsAt: null,
+  finalRevealIndex: 0
 };
+
+let drawingTimeoutHandle = null;
+let finalCeremonyHandle = null;
 
 function getLocalIp() {
   const nets = os.networkInterfaces();
@@ -297,21 +306,74 @@ function publicPlayer(player) {
   };
 }
 
-function submissionsFor(promptIndex, includeImage = false) {
+function submissionsFor(promptIndex, { includeImage = false, includeName = false } = {}) {
   return activePlayers()
     .filter((player) => player.submitted[promptIndex])
     .map((player) => {
-      const entry = { playerId: player.id, name: player.name };
+      const entry = { playerId: player.id };
+      if (includeName) entry.name = player.name;
       if (includeImage) entry.art = player.art[promptIndex] || null;
       return entry;
     });
 }
 
-function hostState() {
-  const showcaseLike = ["revealIntro", "showcase", "voting"].includes(game.phase);
-  const includeImage = ["showcase", "voting"].includes(game.phase);
+function bestPromptFor(playerId) {
+  let bestPromptIndex = null;
+  let bestVotes = -1;
+  for (const round of game.roundWinners) {
+    if (round.winners.some((w) => w.id === playerId) && round.votes > bestVotes) {
+      bestPromptIndex = round.promptIndex;
+      bestVotes = round.votes;
+    }
+  }
+  if (bestPromptIndex !== null) return bestPromptIndex;
+  const player = game.players.get(playerId);
+  if (!player) return null;
+  for (let i = 0; i < MATCH_PROMPTS; i++) {
+    if (player.art[i]) return i;
+  }
+  return null;
+}
+
+function bestArtFor(playerId) {
+  const promptIndex = bestPromptFor(playerId);
+  if (promptIndex === null) return null;
+  return game.players.get(playerId)?.art[promptIndex] || null;
+}
+
+function currentRoundResult() {
+  const result = game.roundWinners.find((w) => w.promptIndex === game.revealPromptIndex);
+  if (!result) return null;
+  const promptInfo = game.prompts[result.promptIndex];
   return {
-    phase: game.phase,
+    promptIndex: result.promptIndex,
+    promptText: promptInfo?.text || "",
+    votes: result.votes,
+    winners: result.winners.map((w) => ({
+      id: w.id,
+      name: w.name,
+      art: game.players.get(w.id)?.art[result.promptIndex] || null
+    }))
+  };
+}
+
+function finalLeaderboard() {
+  const lb = activePlayers().map(publicPlayer).sort((a, b) => b.score - a.score);
+  const revealedCount = Math.max(0, game.finalRevealIndex);
+  if (revealedCount > 0 && revealedCount <= lb.length) {
+    const focusIdx = lb.length - revealedCount;
+    lb[focusIdx] = { ...lb[focusIdx], bestArt: bestArtFor(lb[focusIdx].id) };
+  }
+  return lb;
+}
+
+function hostState() {
+  const phase = game.phase;
+  const showcaseLike = ["revealIntro", "showcase", "voting"].includes(phase);
+  const promptIdx = showcaseLike ? game.revealPromptIndex : game.currentPromptIndex;
+  const subOpts = { includeImage: ["showcase", "voting"].includes(phase) };
+  return {
+    phase,
     joinUrl: getLocalIp() ? `http://${getLocalIp()}:${PORT}` : null,
     players: [...game.players.values()].map(publicPlayer),
     participants: activePlayers().map(publicPlayer),
@@ -321,9 +383,12 @@ function hostState() {
     currentPrompt: currentPrompt(),
     revealPrompt: revealPrompt(),
     showcaseIndex: game.showcaseIndex,
-    submissions: submissionsFor(showcaseLike ? game.revealPromptIndex : game.currentPromptIndex, includeImage),
+    submissions: submissionsFor(promptIdx, subOpts),
     roundWinners: game.roundWinners,
-    leaderboard: activePlayers().map(publicPlayer).sort((a, b) => b.score - a.score)
+    leaderboard: phase === "final" ? finalLeaderboard() : activePlayers().map(publicPlayer).sort((a, b) => b.score - a.score),
+    drawingEndsAt: phase === "drawing" ? game.drawingEndsAt : null,
+    finalRevealIndex: phase === "final" ? game.finalRevealIndex : 0,
+    roundResult: phase === "scoring" ? currentRoundResult() : null
   };
 }
 
@@ -359,12 +424,12 @@ function emitAll() {
 function startGame() {
   const readyPlayers = [...game.players.values()].filter((player) => player.connected && player.ready);
   if (!readyPlayers.length) return;
-  game.phase = "drawing";
   game.prompts = pickPrompts();
   game.currentPromptIndex = 0;
   game.revealPromptIndex = 0;
   game.participants = new Set(readyPlayers.map((player) => player.id));
   game.roundWinners = [];
+  game.finalRevealIndex = 0;
   for (const player of readyPlayers) {
     player.score = 0;
     player.art = {};
@@ -373,6 +438,46 @@ function startGame() {
     player.hands = {};
     for (const prompt of game.prompts) player.hands[prompt.index] = handForPrompt(prompt);
   }
+  enterDrawingPhase();
+  emitAll();
+}
+
+function enterDrawingPhase() {
+  game.phase = "drawing";
+  game.drawingEndsAt = Date.now() + DRAWING_DURATION_MS;
+  if (drawingTimeoutHandle) clearTimeout(drawingTimeoutHandle);
+  const promptIndex = game.currentPromptIndex;
+  drawingTimeoutHandle = setTimeout(() => onDrawingTimeout(promptIndex), DRAWING_DURATION_MS + 1500);
+}
+
+function clearDrawingTimer() {
+  if (drawingTimeoutHandle) {
+    clearTimeout(drawingTimeoutHandle);
+    drawingTimeoutHandle = null;
+  }
+  game.drawingEndsAt = null;
+}
+
+function advancePastDrawing() {
+  clearDrawingTimer();
+  if (game.currentPromptIndex < MATCH_PROMPTS - 1) {
+    game.currentPromptIndex += 1;
+    enterDrawingPhase();
+  } else {
+    startRevealIntro(0);
+  }
+}
+
+function onDrawingTimeout(promptIndex) {
+  if (game.phase !== "drawing" || game.currentPromptIndex !== promptIndex) return;
+  for (const id of game.participants) {
+    const player = game.players.get(id);
+    if (player && !player.submitted[promptIndex]) {
+      player.art[promptIndex] = player.art[promptIndex] || null;
+      player.submitted[promptIndex] = true;
+    }
+  }
+  advancePastDrawing();
   emitAll();
 }
 
@@ -386,11 +491,7 @@ function maybeAdvanceDrawing() {
   if (game.phase !== "drawing") return;
   const promptIndex = game.currentPromptIndex;
   if (!activePlayers().every((player) => player.submitted[promptIndex])) return;
-  if (game.currentPromptIndex < MATCH_PROMPTS - 1) {
-    game.currentPromptIndex += 1;
-  } else {
-    startRevealIntro(0);
-  }
+  advancePastDrawing();
   emitAll();
 }
 
@@ -454,12 +555,40 @@ function maybeAdvanceReveal() {
 
 function advanceReveal() {
   scoreRevealRound(game.revealPromptIndex);
-  if (game.revealPromptIndex < MATCH_PROMPTS - 1) {
-    startRevealIntro(game.revealPromptIndex + 1);
-  } else {
-    game.phase = "final";
-    emitAll();
-  }
+  startScoring(game.revealPromptIndex);
+}
+
+function startScoring(promptIndex) {
+  game.phase = "scoring";
+  emitAll();
+  setTimeout(() => {
+    if (game.phase !== "scoring" || game.revealPromptIndex !== promptIndex) return;
+    if (game.revealPromptIndex < MATCH_PROMPTS - 1) {
+      startRevealIntro(game.revealPromptIndex + 1);
+    } else {
+      startFinalCeremony();
+    }
+  }, SCORING_MS);
+}
+
+function startFinalCeremony() {
+  game.phase = "final";
+  game.finalRevealIndex = 0;
+  emitAll();
+  scheduleFinalReveal(FINAL_INTRO_MS);
+}
+
+function scheduleFinalReveal(delay = FINAL_STEP_MS) {
+  if (finalCeremonyHandle) clearTimeout(finalCeremonyHandle);
+  finalCeremonyHandle = setTimeout(() => {
+    if (game.phase !== "final") return;
+    const totalSteps = activePlayers().length + 1;
+    if (game.finalRevealIndex < totalSteps - 1) {
+      game.finalRevealIndex += 1;
+      emitAll();
+      scheduleFinalReveal();
+    }
+  }, delay);
 }
 
 function scoreRevealRound(promptIndex) {
@@ -490,6 +619,12 @@ function resetToLobby() {
   game.showcaseIndex = 0;
   game.participants = new Set();
   game.roundWinners = [];
+  game.finalRevealIndex = 0;
+  clearDrawingTimer();
+  if (finalCeremonyHandle) {
+    clearTimeout(finalCeremonyHandle);
+    finalCeremonyHandle = null;
+  }
   for (const player of game.players.values()) {
     player.ready = false;
     player.hands = {};
@@ -544,8 +679,8 @@ io.on("connection", (socket) => {
     const player = game.players.get(socket.data.playerId);
     const prompt = currentPrompt();
     if (!player || !prompt || game.phase !== "drawing" || !game.participants.has(player.id)) return;
+    if (player.submitted[prompt.index]) return;
     const sanitized = sanitizeImage(image);
-    if (!sanitized) return;
     player.art[prompt.index] = sanitized;
     player.submitted[prompt.index] = true;
     emitAll();
