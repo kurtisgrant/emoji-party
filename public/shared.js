@@ -3,6 +3,16 @@ function renderArtwork(container, art, options = {}) {
   container.classList.add("art-canvas");
   const frame = document.createElement("div");
   frame.className = "art-frame";
+  if (typeof art === "string" && art.startsWith("data:image/")) {
+    frame.classList.add("art-frame-image");
+    const img = document.createElement("img");
+    img.className = "art-image";
+    img.src = art;
+    img.alt = "";
+    frame.appendChild(img);
+    container.appendChild(frame);
+    return;
+  }
   if (options.prompt) {
     const prompt = document.createElement("div");
     prompt.className = "art-prompt";

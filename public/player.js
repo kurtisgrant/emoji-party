@@ -158,7 +158,55 @@ function renderDrawing() {
   document.getElementById("selectNext").onclick = () => cycleSelection(1);
   document.getElementById("layerDown").onclick = () => moveCurrentLayer(-1);
   document.getElementById("layerUp").onclick = () => moveCurrentLayer(1);
-  document.getElementById("finishArt").onclick = () => socket.emit("player:submitArt", serializeArt());
+  document.getElementById("finishArt").onclick = () => {
+    socket.emit("player:submitArt", rasterizeArt());
+  };
+}
+
+function rasterizeArt() {
+  const liveFrame = document.querySelector("#editorCanvas .art-frame");
+  const liveRect = liveFrame ? liveFrame.getBoundingClientRect() : null;
+  const liveHeight = liveRect ? Math.max(1, liveRect.height) : 600;
+  const liveWidth = liveRect ? Math.max(1, liveRect.width) : 750;
+  const width = 1200;
+  const height = 960;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f6f1e4";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "rgba(255,255,255,0.045)";
+  ctx.lineWidth = 1;
+  const gridStepX = (24 / liveWidth) * width;
+  const gridStepY = (24 / liveHeight) * height;
+  for (let x = gridStepX; x < width; x += gridStepX) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, height);
+    ctx.stroke();
+  }
+  for (let y = gridStepY; y < height; y += gridStepY) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(width, y);
+    ctx.stroke();
+  }
+  const fontPx = (42 / liveHeight) * height;
+  for (const item of [...art].sort((a, b) => a.z - b.z)) {
+    const px = (item.x / 100) * width;
+    const py = (item.y / 100) * height;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(((item.rotation || 0) * Math.PI) / 180);
+    ctx.scale(item.flipped ? -item.scale : item.scale, item.scale);
+    ctx.font = `${fontPx}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(item.emoji, 0, 0);
+    ctx.restore();
+  }
+  return canvas.toDataURL("image/jpeg", 0.85);
 }
 
 function renderVoting() {
@@ -524,10 +572,6 @@ function pointInFrame(pointer, frame, requireInside = true) {
     x: clamp(((clientX - rect.left) / rect.width) * 100, MOVE_MIN, MOVE_MAX),
     y: clamp(((clientY - rect.top) / rect.height) * 100, MOVE_MIN, MOVE_MAX)
   };
-}
-
-function serializeArt() {
-  return [...art].sort((a, b) => a.z - b.z).map(({ emoji, x, y, scale, rotation, flipped, z }) => ({ emoji, x, y, scale, rotation, flipped, z }));
 }
 
 function withIds(value) {

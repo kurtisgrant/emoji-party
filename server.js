@@ -8,13 +8,12 @@ const PORT = process.env.PORT || 3000;
 const ROOM = "emoji-showdown";
 const MATCH_PROMPTS = 3;
 const HAND_SIZE = 18;
-const MAX_ART = 24;
 const REVEAL_INTRO_MS = 4200;
 const SHOWCASE_MS = 4300;
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { maxHttpBufferSize: 8e6 });
 
 app.use(express.static(path.join(__dirname, "public")));
 app.get("/vendor/interact.min.js", (_req, res) => {
@@ -298,17 +297,19 @@ function publicPlayer(player) {
   };
 }
 
-function submissionsFor(promptIndex) {
+function submissionsFor(promptIndex, includeImage = false) {
   return activePlayers()
     .filter((player) => player.submitted[promptIndex])
-    .map((player) => ({
-      playerId: player.id,
-      name: player.name,
-      art: player.art[promptIndex] || []
-    }));
+    .map((player) => {
+      const entry = { playerId: player.id, name: player.name };
+      if (includeImage) entry.art = player.art[promptIndex] || null;
+      return entry;
+    });
 }
 
 function hostState() {
+  const showcaseLike = ["revealIntro", "showcase", "voting"].includes(game.phase);
+  const includeImage = ["showcase", "voting"].includes(game.phase);
   return {
     phase: game.phase,
     joinUrl: getLocalIp() ? `http://${getLocalIp()}:${PORT}` : null,
@@ -320,7 +321,7 @@ function hostState() {
     currentPrompt: currentPrompt(),
     revealPrompt: revealPrompt(),
     showcaseIndex: game.showcaseIndex,
-    submissions: submissionsFor(["revealIntro", "showcase", "voting"].includes(game.phase) ? game.revealPromptIndex : game.currentPromptIndex),
+    submissions: submissionsFor(showcaseLike ? game.revealPromptIndex : game.currentPromptIndex, includeImage),
     roundWinners: game.roundWinners,
     leaderboard: activePlayers().map(publicPlayer).sort((a, b) => b.score - a.score)
   };
@@ -339,7 +340,7 @@ function playerState(playerId) {
       score: player.score,
       participant: game.participants.has(player.id),
       hand: prompt ? player.hands[prompt.index] || [] : [],
-      art: prompt ? player.art[prompt.index] || [] : [],
+      art: [],
       submitted: prompt ? Boolean(player.submitted[prompt.index]) : false,
       vote: reveal ? player.votes[reveal.index] || null : null
     } : null
@@ -539,11 +540,13 @@ io.on("connection", (socket) => {
     maybeStartGame();
   });
 
-  socket.on("player:submitArt", (art) => {
+  socket.on("player:submitArt", (image) => {
     const player = game.players.get(socket.data.playerId);
     const prompt = currentPrompt();
     if (!player || !prompt || game.phase !== "drawing" || !game.participants.has(player.id)) return;
-    player.art[prompt.index] = sanitizeArt(art);
+    const sanitized = sanitizeImage(image);
+    if (!sanitized) return;
+    player.art[prompt.index] = sanitized;
     player.submitted[prompt.index] = true;
     emitAll();
     maybeAdvanceDrawing();
@@ -570,17 +573,11 @@ io.on("connection", (socket) => {
   });
 });
 
-function sanitizeArt(art) {
-  if (!Array.isArray(art)) return [];
-  return art.slice(0, MAX_ART).map((item, index) => ({
-    emoji: String(item.emoji || "❓").slice(0, 12),
-    x: clamp(Number(item.x), -250, 350, 50),
-    y: clamp(Number(item.y), -250, 350, 50),
-    scale: clamp(Number(item.scale), 0.25, 40, 1),
-    rotation: clamp(Number(item.rotation), -720, 720, 0),
-    flipped: Boolean(item.flipped),
-    z: Number.isFinite(Number(item.z)) ? Number(item.z) : index
-  })).sort((a, b) => a.z - b.z);
+function sanitizeImage(image) {
+  if (typeof image !== "string") return null;
+  if (!image.startsWith("data:image/png;base64,") && !image.startsWith("data:image/jpeg;base64,")) return null;
+  if (image.length > 4_000_000) return null;
+  return image;
 }
 
 function clamp(value, min, max, fallback) {
