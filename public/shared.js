@@ -44,10 +44,11 @@ function countdownText(endsAt) {
 function phaseLabel(phase) {
   return {
     lobby: "Lobby",
-    redraw: "Redraw",
     drawing: "Drawing",
-    reveal: "Reveal",
+    revealIntro: "Reveal",
+    showcase: "Gallery",
     voting: "Voting",
-    results: "Results"
+    scoring: "Scoring",
+    final: "Final"
   }[phase] || phase;
 }

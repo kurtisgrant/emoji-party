@@ -34,10 +34,13 @@ function renderLobby() {
         <h1>Join the game</h1>
         <div class="tv-url">${escapeHtml(state.joinUrl || location.origin)}</div>
       </div>
+      <div class="tv-lobby-flourish" aria-hidden="true">
+        <span>✨</span><span>💥</span><span>👀</span><span>🎂</span><span>🧠</span>
+      </div>
       <div class="tv-roster">
         <div class="tv-progress">${ready}/${state.players.length} ready</div>
         <div class="tv-player-grid">
-          ${state.players.map((player) => `<div class="tv-player ${player.ready ? "ready" : ""}">${escapeHtml(player.name)}<span>${player.ready ? "ready" : "..."}</span></div>`).join("") || `<div class="tv-player">Waiting for artists</div>`}
+          ${state.players.map((player) => `<div class="tv-player ${player.ready ? "ready" : ""}"><strong>${escapeHtml(player.name)}</strong><span>${player.ready ? "ready" : "..."}</span></div>`).join("") || `<div class="tv-player"><strong>Waiting for artists</strong></div>`}
         </div>
       </div>
     </section>
@@ -52,6 +55,7 @@ function renderDrawing() {
       <div class="tv-kicker">Prompt ${prompt.index + 1} of 3</div>
       <h1>${escapeHtml(prompt.text)}</h1>
       <div class="tv-provided">${prompt.provided.map((emoji) => `<span>${emoji}</span>`).join("")}</div>
+      <div class="tv-prompt-spark" aria-hidden="true"></div>
       <div class="tv-timer" id="tvTimer">--:--</div>
       <div class="tv-progress">${submitted}/${state.participants.length} submitted</div>
     </section>
@@ -97,6 +101,7 @@ function renderVoting() {
       <div class="tv-kicker">Phones out</div>
       <h1>Vote for your favorite</h1>
       <p>${escapeHtml(prompt.text)}</p>
+      <div class="tv-vote-pulse" aria-hidden="true">☝️ 👑 ⭐</div>
       <div class="tv-progress">${voted}/${state.participants.length} voted</div>
     </section>
   `;

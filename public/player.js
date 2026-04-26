@@ -34,6 +34,8 @@ socket.on("forceRejoin", () => {
   state = null;
   art = [];
   selectedId = null;
+  playerName = "";
+  localStorage.removeItem("emojiShowdownName");
   renderJoin("The host reset the game. Join again to play.");
 });
 

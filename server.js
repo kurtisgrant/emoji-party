@@ -306,6 +306,10 @@ function publicPlayer(player) {
   };
 }
 
+function visiblePlayers() {
+  return [...game.players.values()].filter((player) => player.connected || game.participants.has(player.id));
+}
+
 function submissionsFor(promptIndex, { includeImage = false, includeName = false } = {}) {
   return activePlayers()
     .filter((player) => player.submitted[promptIndex])
@@ -375,7 +379,7 @@ function hostState() {
   return {
     phase,
     joinUrl: getLocalIp() ? `http://${getLocalIp()}:${PORT}` : null,
-    players: [...game.players.values()].map(publicPlayer),
+    players: visiblePlayers().map(publicPlayer),
     participants: activePlayers().map(publicPlayer),
     prompts: game.prompts,
     currentPromptIndex: game.currentPromptIndex,
@@ -535,7 +539,7 @@ function startVoting(promptIndex) {
 
 function eligibleVoters(promptIndex) {
   const submitted = new Set(submissionsFor(promptIndex).map((entry) => entry.playerId));
-  return activePlayers().filter((player) => submitted.size > 1 && submitted.has(player.id));
+  return activePlayers().filter((player) => player.connected && submitted.size > 1 && submitted.has(player.id));
 }
 
 function maybeSkipVoteIfNeeded() {
