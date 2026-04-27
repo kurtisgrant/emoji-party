@@ -6,6 +6,9 @@ const MOVE_MAX = 350;
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 40;
 const MAX_EMOJIS = 24;
+const ART_WIDTH = 1200;
+const ART_HEIGHT = 960;
+const ART_FONT_PX = 96;
 
 let playerName = localStorage.getItem("emojiShowdownName") || "";
 let state = null;
@@ -17,6 +20,7 @@ let canvasGesture = null;
 let canvasDrag = null;
 let lastTouchEnd = null;
 const outlineCache = new Map();
+const canvasSelectionCache = new Map();
 
 setViewportHeight();
 window.addEventListener("resize", setViewportHeight);
@@ -220,48 +224,120 @@ function submitCurrentArt() {
 }
 
 function rasterizeArt() {
-  const liveFrame = document.querySelector("#editorCanvas .art-frame");
-  const liveRect = liveFrame ? liveFrame.getBoundingClientRect() : null;
-  const liveHeight = liveRect ? Math.max(1, liveRect.height) : 600;
-  const liveWidth = liveRect ? Math.max(1, liveRect.width) : 750;
-  const width = 1200;
-  const height = 960;
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  const canvas = document.getElementById("artCanvas");
+  if (!canvas) return rasterizeCanvasArt();
+  drawCanvasScene(canvas, { selection: false });
+  const image = canvas.toDataURL("image/jpeg", 0.85);
+  drawCanvasScene(canvas, { selection: true });
+  return image;
+}
+
+function drawCanvasScene(canvas, { selection = true } = {}) {
+  if (canvas.width !== ART_WIDTH) canvas.width = ART_WIDTH;
+  if (canvas.height !== ART_HEIGHT) canvas.height = ART_HEIGHT;
   const ctx = canvas.getContext("2d");
   ctx.fillStyle = "#f6f1e4";
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, ART_WIDTH, ART_HEIGHT);
   ctx.strokeStyle = "rgba(255,255,255,0.045)";
   ctx.lineWidth = 1;
-  const gridStepX = (24 / liveWidth) * width;
-  const gridStepY = (24 / liveHeight) * height;
-  for (let x = gridStepX; x < width; x += gridStepX) {
+  const gridStep = 38.4;
+  for (let x = gridStep; x < ART_WIDTH; x += gridStep) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
+    ctx.lineTo(x, ART_HEIGHT);
     ctx.stroke();
   }
-  for (let y = gridStepY; y < height; y += gridStepY) {
+  for (let y = gridStep; y < ART_HEIGHT; y += gridStep) {
     ctx.beginPath();
     ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
+    ctx.lineTo(ART_WIDTH, y);
     ctx.stroke();
   }
-  const fontPx = (42 / liveHeight) * height;
   for (const item of [...art].sort((a, b) => a.z - b.z)) {
-    const px = (item.x / 100) * width;
-    const py = (item.y / 100) * height;
-    ctx.save();
-    ctx.translate(px, py);
-    ctx.rotate(((item.rotation || 0) * Math.PI) / 180);
-    ctx.scale(item.flipped ? -item.scale : item.scale, item.scale);
-    ctx.font = `${fontPx}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(item.emoji, 0, 0);
-    ctx.restore();
+    if (selection && item.id === selectedId) drawSelectionHalo(ctx, item);
+    drawCanvasEmoji(ctx, item);
   }
+}
+
+function drawCanvasEmoji(ctx, item, options = {}) {
+  const px = (item.x / 100) * ART_WIDTH;
+  const py = (item.y / 100) * ART_HEIGHT;
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(((item.rotation || 0) * Math.PI) / 180);
+  ctx.scale(item.flipped ? -item.scale : item.scale, item.scale);
+  ctx.font = `${ART_FONT_PX}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  if (options.tint) {
+    ctx.globalAlpha = options.alpha ?? 0.42;
+    ctx.fillStyle = options.tint;
+  }
+  ctx.fillText(item.emoji, 0, 0);
+  ctx.restore();
+}
+
+function drawSelectionHalo(ctx, item) {
+  const px = (item.x / 100) * ART_WIDTH;
+  const py = (item.y / 100) * ART_HEIGHT;
+  const radius = Math.max(1, Math.round(8 / Math.max(0.5, item.scale || 1)));
+  const sprite = selectionOutlineSprite(item.emoji, radius);
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(((item.rotation || 0) * Math.PI) / 180);
+  ctx.scale(item.flipped ? -item.scale : item.scale, item.scale);
+  ctx.drawImage(sprite.canvas, -sprite.center, -sprite.center);
+  ctx.restore();
+}
+
+function selectionOutlineSprite(emoji, radius) {
+  const key = `${emoji}:${radius}`;
+  if (canvasSelectionCache.has(key)) return canvasSelectionCache.get(key);
+  const side = ART_FONT_PX * 3;
+  const center = side / 2;
+  const source = document.createElement("canvas");
+  source.width = side;
+  source.height = side;
+  const sourceCtx = source.getContext("2d", { willReadFrequently: true });
+  sourceCtx.font = `${ART_FONT_PX}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  sourceCtx.textAlign = "center";
+  sourceCtx.textBaseline = "middle";
+  sourceCtx.fillText(emoji, center, center);
+
+  const silhouette = document.createElement("canvas");
+  silhouette.width = side;
+  silhouette.height = side;
+  const silhouetteCtx = silhouette.getContext("2d");
+  silhouetteCtx.drawImage(source, 0, 0);
+  silhouetteCtx.globalCompositeOperation = "source-in";
+  silhouetteCtx.fillStyle = "rgba(47, 213, 255, 0.58)";
+  silhouetteCtx.fillRect(0, 0, side, side);
+
+  const outline = document.createElement("canvas");
+  outline.width = side;
+  outline.height = side;
+  const outlineCtx = outline.getContext("2d");
+  for (let degrees = 0; degrees < 360; degrees += 15) {
+    const dx = Math.round(Math.cos(degrees * Math.PI / 180) * radius);
+    const dy = Math.round(Math.sin(degrees * Math.PI / 180) * radius);
+    outlineCtx.drawImage(silhouette, dx, dy);
+  }
+  outlineCtx.globalCompositeOperation = "destination-out";
+  outlineCtx.drawImage(source, 0, 0);
+  outlineCtx.globalCompositeOperation = "source-over";
+  outlineCtx.filter = "blur(0.7px)";
+  outlineCtx.globalAlpha = 0.45;
+  outlineCtx.drawImage(outline, 0, 0);
+  outlineCtx.filter = "none";
+  outlineCtx.globalAlpha = 1;
+  const sprite = { canvas: outline, center };
+  canvasSelectionCache.set(key, sprite);
+  return sprite;
+}
+
+function rasterizeCanvasArt() {
+  const canvas = document.createElement("canvas");
+  drawCanvasScene(canvas, { selection: false });
   return canvas.toDataURL("image/jpeg", 0.85);
 }
 
@@ -319,27 +395,21 @@ function renderFinal() {
 }
 
 function renderEditor() {
-  const canvas = document.getElementById("editorCanvas");
-  renderArtwork(canvas, art);
-  const frame = canvas.querySelector(".art-frame");
-  frame.classList.add("drawlab-frame");
+  const canvasHost = document.getElementById("editorCanvas");
+  canvasHost.innerHTML = `
+    <div class="art-canvas canvas-art-canvas">
+      <div class="art-frame drawlab-frame canvas-art-frame">
+        <canvas id="artCanvas" width="${ART_WIDTH}" height="${ART_HEIGHT}"></canvas>
+      </div>
+    </div>
+  `;
+  const frame = canvasHost.querySelector(".art-frame");
   frame.addEventListener("pointerdown", (event) => startCanvasPointer(event, frame));
   frame.addEventListener("pointermove", (event) => moveCanvasPointer(event, frame));
   frame.addEventListener("pointerup", endCanvasPointer);
   frame.addEventListener("pointercancel", endCanvasPointer);
   frame.addEventListener("lostpointercapture", endCanvasPointer);
-
-  const current = currentItem();
-  for (const el of frame.querySelectorAll(".placed-emoji")) {
-    const isCurrent = Boolean(current && el.dataset.id === current.id);
-    el.classList.toggle("selected", isCurrent);
-    el.classList.toggle("locked", !isCurrent);
-    const item = art.find((entry) => entry.id === el.dataset.id);
-    if (item && isCurrent) {
-      applyPixelOutline(el, item);
-      wirePlacedEmoji(el, item, frame);
-    }
-  }
+  drawCanvasScene(document.getElementById("artCanvas"));
 }
 
 function renderHand() {
@@ -608,27 +678,17 @@ function outlineOffsets(radius) {
 }
 
 function updateItemElement(item) {
-  const el = document.querySelector(`.placed-emoji[data-id="${CSS.escape(item.id)}"]`);
-  if (!el) return;
-  el.style.left = `${item.x}%`;
-  el.style.top = `${item.y}%`;
-  el.style.transform = `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})`;
+  const canvas = document.getElementById("artCanvas");
+  if (canvas) drawCanvasScene(canvas);
 }
 
 function refreshSelectedOutline(item = currentItem()) {
-  if (!item) return;
-  const el = document.querySelector(`.placed-emoji[data-id="${CSS.escape(item.id)}"]`);
-  const img = el?.querySelector(".emoji-outline-img");
-  if (!img) return;
-  const bucket = outlineBucket(item.scale);
-  if (img.dataset.outlineBucket !== bucket) {
-    img.dataset.outlineBucket = bucket;
-    img.src = outlinedEmojiUrl(item.emoji, item.scale);
-  }
+  if (item) updateItemElement(item);
 }
 
 function markSelected() {
-  for (const el of document.querySelectorAll(".placed-emoji")) el.classList.toggle("selected", el.dataset.id === selectedId);
+  const canvas = document.getElementById("artCanvas");
+  if (canvas) drawCanvasScene(canvas);
 }
 
 function pointInFrame(pointer, frame, requireInside = true) {
