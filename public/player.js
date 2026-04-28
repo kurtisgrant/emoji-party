@@ -9,6 +9,21 @@ const MAX_EMOJIS = 24;
 const ART_WIDTH = 1200;
 const ART_HEIGHT = 960;
 const ART_FONT_PX = 96;
+const PRACTICE_PROMPTS = [
+  "a raccoon hosting a cooking show",
+  "a vampire working the day shift",
+  "a ghost getting ghosted",
+  "a shark running a daycare",
+  "a wizard failing tech support",
+  "a cat leading a corporate meeting",
+  "a robot getting fired from a daycare",
+  "a haunted grocery store"
+];
+const PRACTICE_EMOJIS = [
+  "🦝", "👨‍🍳", "🔥", "🧛", "☀️", "👻", "🪦", "🦈", "👶", "🧙", "💻", "🐱",
+  "💬", "🤖", "🔋", "🏫", "🧠", "🤢", "🍕", "🪑", "🚪", "📱", "🐶", "😱",
+  "😂", "💥", "👀", "✅", "🧽", "🥔", "🧃", "🎂", "📦", "💔", "🦷", "🚽"
+];
 
 let playerName = localStorage.getItem("emojiShowdownName") || "";
 let state = null;
@@ -19,6 +34,7 @@ let activeCanvasPointers = new Map();
 let canvasGesture = null;
 let canvasDrag = null;
 let lastTouchEnd = null;
+let practiceMode = false;
 const outlineCache = new Map();
 const canvasSelectionCache = new Map();
 
@@ -30,6 +46,7 @@ document.addEventListener("touchend", preventDoubleTapZoom, { passive: false, ca
 document.addEventListener("dblclick", suppressTapZoom, { capture: true });
 
 socket.on("connect", () => {
+  if (practiceMode) return;
   if (playerName) join(playerName);
   else renderJoin();
 });
@@ -44,6 +61,7 @@ socket.on("forceRejoin", () => {
 });
 
 socket.on("playerState", (next) => {
+  if (practiceMode) return;
   const oldPrompt = state?.currentPrompt?.index;
   const oldPhase = state?.phase;
   state = next;
@@ -90,6 +108,7 @@ function renderJoin(error = "") {
       ${error ? `<p>${escapeHtml(error)}</p>` : ""}
       <input id="nameInput" maxlength="24" autocomplete="name" placeholder="Your name" value="${escapeHtml(playerName)}">
       <button>Join</button>
+      <button class="secondary" id="practiceBtn" type="button">Practice drawing</button>
     </form>
   `;
   document.getElementById("joinForm").onsubmit = (event) => {
@@ -97,6 +116,57 @@ function renderJoin(error = "") {
     const name = document.getElementById("nameInput").value.trim();
     if (name) join(name);
   };
+  document.getElementById("practiceBtn").onclick = startPractice;
+}
+
+function startPractice() {
+  practiceMode = true;
+  stopDrawingTimer();
+  activeCanvasPointers.clear();
+  canvasGesture = null;
+  canvasDrag = null;
+  art = [];
+  selectedId = null;
+  const promptText = choice(PRACTICE_PROMPTS);
+  state = {
+    phase: "drawing",
+    drawingEndsAt: null,
+    currentPrompt: { index: 0, text: `Practice: ${promptText}`, provided: [] },
+    me: {
+      id: "practice",
+      name: "Practice",
+      participant: true,
+      submitted: false,
+      hand: samplePracticeEmojis(18),
+      art: []
+    }
+  };
+  renderDrawing();
+}
+
+function exitPractice() {
+  practiceMode = false;
+  stopDrawingTimer();
+  activeCanvasPointers.clear();
+  canvasGesture = null;
+  canvasDrag = null;
+  art = [];
+  selectedId = null;
+  state = null;
+  renderJoin();
+}
+
+function samplePracticeEmojis(count) {
+  const pool = [...PRACTICE_EMOJIS];
+  const picked = [];
+  while (picked.length < count && pool.length) {
+    picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  return picked;
+}
+
+function choice(items) {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
 function renderLobby() {
@@ -132,13 +202,14 @@ function renderDrawing() {
     selectedId = art.at(-1)?.id || null;
   }
   const prompt = state.currentPrompt;
+  const isPractice = Boolean(state.practice || practiceMode);
   app.innerHTML = `
     <section class="phone-panel">
       <div class="editor-shell drawing-panel">
         <div class="drawing-hud">
           <p class="prompt">${escapeHtml(prompt.text)}</p>
-          <span class="pill">${prompt.index + 1}/3</span>
-          <span class="pill drawing-timer" id="drawingTimer">--:--</span>
+          <span class="pill">${isPractice ? "Practice" : `${prompt.index + 1}/3`}</span>
+          ${isPractice ? "" : `<span class="pill drawing-timer" id="drawingTimer">--:--</span>`}
         </div>
         <div class="drawing-stage">
           <div id="editorCanvas" class="editor-canvas"></div>
@@ -154,7 +225,7 @@ function renderDrawing() {
         </div>
         <div class="editor-actions">
           <button class="secondary delete-action" id="deleteArt" ${currentItem() ? "" : "disabled"} aria-label="Delete selected">🗑️</button>
-          <button id="finishArt">Finish</button>
+          <button id="finishArt">${isPractice ? "Exit Practice" : "Finish"}</button>
           <span class="pill">${art.length}/${MAX_EMOJIS}</span>
         </div>
       </div>
@@ -168,9 +239,10 @@ function renderDrawing() {
   document.getElementById("layerDown").onclick = () => moveCurrentLayer(-1);
   document.getElementById("layerUp").onclick = () => moveCurrentLayer(1);
   document.getElementById("finishArt").onclick = () => {
-    submitCurrentArt();
+    if (practiceMode) exitPractice();
+    else submitCurrentArt();
   };
-  startDrawingTimer();
+  if (!isPractice) startDrawingTimer();
 }
 
 let drawingTimerInterval = null;
